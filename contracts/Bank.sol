@@ -5,7 +5,7 @@ import "./interfaces/IBank.sol";
 import "./interfaces/IPriceOracle.sol";
 import {DSMath} from "./libraries/Math.sol";
 import "@openzeppelin/contracts@v3.4.0/token/ERC20/IERC20.sol";
-    
+
 contract Bank is IBank {
     struct Customer {
         IBank.Account ethAccount;
@@ -23,12 +23,12 @@ contract Bank is IBank {
     IPriceOracle priceOracle;
     address hakToken;
     address ethToken = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
-    
+
     IERC20 hak;
     IERC20 eth;
-    
+
     SimpleBank bank;
-    
+
     mapping(address => Customer) customerAccounts;
 
     constructor(address _priceOracle, address _hakToken) {
@@ -38,7 +38,7 @@ contract Bank is IBank {
         hak = IERC20(hakToken);
         eth = IERC20(ethToken);
     }
-    
+
     function deposit(address token, uint256 amount)
         payable
         external
@@ -47,15 +47,23 @@ contract Bank is IBank {
             Customer storage customer = customerAccounts[msg.sender];
             if (token == hakToken) {
                 hak.transferFrom(msg.sender, bank.bank, amount);
-                customer.hakAccount.deposit = DSMath.add(customer.hakAccount.deposit, amount);
+                uint256 hakInterest = DSMath.mul(
+                    DSMath.sub(block.number, customer.hakAccount.lastInterestBlock), 3);
                 customer.hakAccount.lastInterestBlock = block.number;
+                uint256 hakInterestVal = DSMath.mul(customer.hakAccount.deposit, hakInterest) / 10000;
+                customer.hakAccount.interest = DSMath.add(customer.hakAccount.interest, hakInterestVal);
+                customer.hakAccount.deposit = DSMath.add(customer.hakAccount.deposit, amount);
                 bank.hakAmount = DSMath.add(bank.hakAmount, amount);
                 emit Deposit(msg.sender, token, amount);
                 return true;
             } else if(token == ethToken) {
                 require(amount == msg.value, "Amount and value cannot be different!");
-                customer.ethAccount.deposit = DSMath.add(customer.ethAccount.deposit, amount);
+                uint256 ethInterest = DSMath.mul(
+                    DSMath.sub(block.number, customer.ethAccount.lastInterestBlock), 3);
                 customer.ethAccount.lastInterestBlock = block.number;
+                uint256 ethInterestVal = DSMath.mul(customer.ethAccount.deposit, ethInterest) / 10000;
+                customer.ethAccount.interest = DSMath.add(customer.ethAccount.interest, ethInterestVal);
+                customer.ethAccount.deposit = DSMath.add(customer.ethAccount.deposit, amount);
                 bank.ethAmount = DSMath.add(bank.ethAmount, amount);
                 emit Deposit(msg.sender, token, amount);
                 return true;
@@ -70,11 +78,15 @@ contract Bank is IBank {
             Customer storage customer = customerAccounts[msg.sender];
             if (token == hakToken) {
                 require(customer.hakAccount.deposit != 0, "no balance");
-                uint256 hakInterest = DSMath.wmul(
-                    DSMath.wdiv(DSMath.sub(block.number, customer.hakAccount.lastInterestBlock), 100), 3);
+                if (amount == 0) {
+                    amount = customer.hakAccount.deposit;
+                }
+                uint256 hakInterest = DSMath.mul(
+                    DSMath.sub(block.number, customer.hakAccount.lastInterestBlock), 3);
                 customer.hakAccount.lastInterestBlock = block.number;
-                uint256 hakInterestVal = DSMath.wmul(customer.hakAccount.deposit, hakInterest);
-                uint256 toSend = DSMath.add(amount, hakInterestVal);
+                uint256 hakInterestVal = DSMath.mul(customer.hakAccount.deposit, hakInterest) / 10000;
+                uint256 toSend = DSMath.add(DSMath.add(amount, hakInterestVal), customer.hakAccount.interest);
+                customer.hakAccount.interest = 0;
                 require(amount <= customer.hakAccount.deposit, "amount exceeds balance");
                 require(toSend <= bank.hakAmount, "eth bankrupt");
                 bank.hakAmount = DSMath.sub(bank.hakAmount, toSend);
@@ -84,11 +96,15 @@ contract Bank is IBank {
                 return toSend;
             } else if (token == ethToken) {
                 require(customer.ethAccount.deposit != 0, "no balance");
-                uint256 ethInterest = DSMath.wmul(
-                    DSMath.wdiv(DSMath.sub(block.number, customer.ethAccount.lastInterestBlock), 100), 3);
+                if (amount == 0) {
+                    amount = customer.ethAccount.deposit;
+                }
+                uint256 ethInterest = DSMath.mul(
+                    DSMath.sub(block.number, customer.ethAccount.lastInterestBlock), 3);
                 customer.ethAccount.lastInterestBlock = block.number;
-                uint256 ethInterestVal = DSMath.wmul(customer.ethAccount.deposit, ethInterest);
-                uint256 toSend = DSMath.add(amount, ethInterestVal);
+                uint256 ethInterestVal = DSMath.mul(customer.ethAccount.deposit, ethInterest) / 10000;
+                uint256 toSend = DSMath.add(DSMath.add(amount, ethInterestVal), customer.ethAccount.interest);
+                customer.ethAccount.interest = 0;
                 require(amount <= customer.ethAccount.deposit, "amount exceeds balance");
                 require(toSend <= bank.ethAmount, "eth bankrupt");
                 bank.ethAmount = DSMath.sub(bank.ethAmount, toSend);
@@ -213,10 +229,9 @@ contract Bank is IBank {
                 DSMath.sub(block.number, customerAccounts[account].borrowBlock), 100), 5);
             uint256 borrowVal = DSMath.add(customerAccounts[account].borrowed,
                 DSMath.wmul(borrowInterest, customerAccounts[account].borrowed));
-            uint256 depositVal = DSMath.wmul(DSMath.add(customerAccounts[msg.sender].hakAccount.deposit, 
+            uint256 depositVal = DSMath.wmul(DSMath.add(customerAccounts[msg.sender].hakAccount.deposit,
                 customerAccounts[msg.sender].hakAccount.interest), ethHakPrice);
             return DSMath.wdiv(depositVal, borrowVal);
-                
         }
 
     function getBalance(address token)
@@ -224,12 +239,27 @@ contract Bank is IBank {
         public
         override
         returns (uint256) {
+            Customer memory customer = customerAccounts[msg.sender];
             if (token == hakToken) {
-                return DSMath.add(customerAccounts[msg.sender].hakAccount.deposit, 
-                    customerAccounts[msg.sender].hakAccount.interest);
+                uint256 hakInterest = DSMath.mul(
+                    DSMath.sub(block.number, customer.hakAccount.lastInterestBlock), 3);
+                customer.hakAccount.lastInterestBlock = block.number;
+                uint256 hakInterestVal = DSMath.mul(customer.hakAccount.deposit, hakInterest) / 10000;
+                customer.hakAccount.interest = DSMath.add(customer.hakAccount.interest, hakInterestVal);
+                return DSMath.add(customer.hakAccount.deposit,
+                    customer.hakAccount.interest);
             } else if (token == ethToken) {
-                return DSMath.add(customerAccounts[msg.sender].ethAccount.deposit, 
-                    customerAccounts[msg.sender].ethAccount.interest);
+                uint256 ethInterest = DSMath.mul(
+                    DSMath.sub(block.number, customer.ethAccount.lastInterestBlock), 3);
+                customer.ethAccount.lastInterestBlock = block.number;
+                uint256 ethInterestVal = DSMath.mul(customer.ethAccount.deposit, ethInterest) / 10000;
+                customer.ethAccount.interest = DSMath.add(customer.ethAccount.interest, ethInterestVal);
+                uint256 borrowInterest = DSMath.mul(
+                    DSMath.sub(block.number, customer.borrowBlock), 5);
+                uint256 debt = DSMath.add(customer.borrowed,
+                    DSMath.mul(borrowInterest, customer.borrowed) / 10000);
+                return DSMath.sub(DSMath.add(customer.ethAccount.deposit,
+                    customer.ethAccount.interest), debt);
             } else {
                 revert('token not supported');
             }
