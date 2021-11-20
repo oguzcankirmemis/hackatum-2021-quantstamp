@@ -21,16 +21,16 @@ contract Bank is IBank {
         uint256 hakAmount;
     }
 
-    IPriceOracle priceOracle;
-    address hakToken;
-    address ethToken = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    IPriceOracle private priceOracle;
+    address private hakToken;
+    address private ethToken = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
-    IERC20 hak;
-    IERC20 eth;
+    IERC20 private hak;
+    IERC20 private eth;
 
-    SimpleBank bank;
+    SimpleBank private bank;
 
-    mapping(address => Customer) customerAccounts;
+    mapping(address => Customer) private customerAccounts;
 
     constructor(address _priceOracle, address _hakToken) {
         priceOracle = IPriceOracle(_priceOracle);
