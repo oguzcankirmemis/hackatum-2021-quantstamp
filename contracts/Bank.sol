@@ -67,6 +67,7 @@ contract Bank is IBank {
         returns (uint256) {
             Customer storage customer = customerAccounts[msg.sender];
             if (token == hakToken) {
+                require(customer.hakAccount.deposit != 0, "no balance");
                 uint256 hakInterest = DSMath.wmul(
                     DSMath.wdiv(DSMath.sub(block.number, customer.hakAccount.lastInterestBlock), 100), 3);
                 customer.hakAccount.lastInterestBlock = block.number;
@@ -83,7 +84,8 @@ contract Bank is IBank {
                 payable(msg.sender).transfer(toSend);
                 emit Withdraw(msg.sender, token, toSend);
                 return toSend;
-            } else if(token == ethToken) {
+            } else if (token == ethToken) {
+                require(customer.ethAccount.deposit != 0, "no balance");
                 uint256 ethInterest = DSMath.wmul(
                     DSMath.wdiv(DSMath.sub(block.number, customer.ethAccount.lastInterestBlock), 100), 3);
                 customer.ethAccount.lastInterestBlock = block.number;
@@ -101,7 +103,7 @@ contract Bank is IBank {
                 emit Withdraw(msg.sender, token, toSend);
                 return toSend;
             }
-            revert("Unidentified token");
+            revert("token not supported");
         }
 
     function borrow(address token, uint256 amount)
