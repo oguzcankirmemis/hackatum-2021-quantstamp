@@ -11,6 +11,7 @@ contract Bank is IBank {
         IBank.Account ethAccount;
         IBank.Account hakAccount;
         uint256 borrowed;
+        uint256 borrowInterest;
         uint256 borrowBlock;
     }
 
@@ -57,7 +58,7 @@ contract Bank is IBank {
                 emit Deposit(msg.sender, token, amount);
                 return true;
             } else if(token == ethToken) {
-                require(amount == msg.value, "Amount and value cannot be different!");
+                require(amount == msg.value, "amount not equal to sent");
                 uint256 ethInterest = DSMath.mul(
                     DSMath.sub(block.number, customer.ethAccount.lastInterestBlock), 3);
                 customer.ethAccount.lastInterestBlock = block.number;
@@ -120,41 +121,49 @@ contract Bank is IBank {
         external
         override
         returns (uint256) {
-            if (token != ethToken) {
-                revert('token not supported');
-            }
+            Customer storage customer = customerAccounts[msg.sender];
+            require(token == ethToken, "token not supported");
+            require(customer.hakAccount.deposit > 0, "no collateral deposited");
+            require(amount <= bank.ethAmount, "eth bank bankrupt");
             address payable account = msg.sender;
-            if (customerAccounts[account].borrowed == 0) {
-                customerAccounts[account].borrowBlock = block.number;
-            }
-            uint256 oldBorrowed = customerAccounts[account].borrowed;
-            customerAccounts[account].borrowed = amount;
-            uint256 cRatio = getCollateralRatio(hakToken, account);
-            if (cRatio < 15000) {
-                customerAccounts[account].borrowed = oldBorrowed;
-                revert('collateral ratio less than 150%');
+            if (customer.borrowed == 0) {
+                customer.borrowBlock = block.number;
             }
             uint256 ethHakPrice = priceOracle.getVirtualPrice(hakToken);
+            uint256 cRatio = _getCollateralRatio(customer, amount);
+            require(cRatio >= 15000, "borrow would exceed collateral ratio");
+            uint256 borrowInterest = DSMath.mul(customer.borrowed,
+                DSMath.mul(DSMath.sub(block.number, customer.borrowBlock), 5)) / 10000;
+            customer.borrowInterest = DSMath.add(customer.borrowInterest, borrowInterest);
+            customer.borrowBlock = block.number;
+            customer.borrowed = DSMath.add(customer.borrowed, amount);
             if (amount == 0) {
-                uint256 d = customerAccounts[account].hakAccount.deposit;
-                uint256 d_i = customerAccounts[account].hakAccount.interest;
-                uint256 b_i = DSMath.wmul(DSMath.wdiv(
-                    DSMath.sub(block.number, customerAccounts[account].borrowBlock), 100), 5);
-                uint256 maxBorrow = DSMath.wdiv(DSMath.wdiv(
-                    DSMath.wmul(DSMath.wmul(DSMath.add(d, d_i), ethHakPrice), 10000), 15000), DSMath.add(1, b_i));
-                uint256 toSend = DSMath.sub(maxBorrow, customerAccounts[account].borrowed);
+                uint256 d_i_curr = DSMath.mul(
+                    DSMath.sub(block.number, customer.hakAccount.lastInterestBlock), 3);
+                customer.hakAccount.lastInterestBlock = block.number;
+                uint256 d_i_curr_val = DSMath.mul(customer.hakAccount.deposit, d_i_curr) / 10000;
+                uint256 d = customer.hakAccount.deposit;
+                uint256 d_i = DSMath.add(customer.hakAccount.interest, d_i_curr_val);
+                uint256 totalDeposit = DSMath.mul(DSMath.add(d, d_i), ethHakPrice) / 10 ** 18;
+                customer.hakAccount.interest = d_i;
+                uint256 b_i = DSMath.mul(
+                    DSMath.sub(block.number, customer.borrowBlock), 5);
+                uint256 maxBorrow = DSMath.mul(DSMath.sub((DSMath.mul(
+                    totalDeposit, 10000) / 15000), customer.borrowInterest) / DSMath.add(100, b_i), 100);
+                uint256 toSend = DSMath.sub(maxBorrow, customer.borrowed);
                 if (toSend > bank.ethAmount) {
-                    revert('eth borrow bankrupt');
+                    toSend = bank.ethAmount;
                 }
                 bank.ethAmount = DSMath.sub(bank.ethAmount, toSend);
-                customerAccounts[account].borrowed = maxBorrow;
+                customer.borrowed = maxBorrow;
                 account.transfer(toSend);
                 emit Borrow(account, ethToken, toSend, 15000);
+                return 15000;
             } else {
                 account.transfer(amount);
                 emit Borrow(account, ethToken, amount, cRatio);
+                return cRatio;
             }
-            return getCollateralRatio(hakToken, account);
         }
 
     function repay(address token, uint256 amount)
@@ -162,6 +171,8 @@ contract Bank is IBank {
         external
         override
         returns (uint256) {
+            require(token == ethToken, "token not supported");
+            require(amount == msg.value, "amount not equal to sent");
             if (token != ethToken) {
                 revert('token not supported');
             }
@@ -215,23 +226,27 @@ contract Bank is IBank {
         public
         override
         returns (uint256) {
+            Customer memory customer = customerAccounts[account];
             if (token != hakToken) {
                 revert('token not supported');
             }
             uint256 ethHakPrice = priceOracle.getVirtualPrice(hakToken);
-            if (customerAccounts[account].hakAccount.deposit == 0) {
+            if (customer.hakAccount.deposit == 0) {
                 return 0;
             }
-            if (customerAccounts[account].borrowed == 0) {
+            if (customer.borrowed == 0) {
                 return type(uint256).max;
             }
-            uint256 borrowInterest = DSMath.wmul(DSMath.wdiv(
-                DSMath.sub(block.number, customerAccounts[account].borrowBlock), 100), 5);
-            uint256 borrowVal = DSMath.add(customerAccounts[account].borrowed,
-                DSMath.wmul(borrowInterest, customerAccounts[account].borrowed));
-            uint256 depositVal = DSMath.wmul(DSMath.add(customerAccounts[msg.sender].hakAccount.deposit,
-                customerAccounts[msg.sender].hakAccount.interest), ethHakPrice);
-            return DSMath.wdiv(depositVal, borrowVal);
+            uint256 borrowInterest = DSMath.mul(
+                DSMath.sub(block.number, customer.borrowBlock), 5);
+            uint256 debt = DSMath.add(DSMath.add(customer.borrowed, customer.borrowInterest),
+                DSMath.mul(borrowInterest, customer.borrowed) / 10000);
+            uint256 depositInterest = DSMath.mul(
+                DSMath.sub(block.number, customer.hakAccount.lastInterestBlock), 3);
+            uint256 depositInterestVal = DSMath.mul(customer.hakAccount.deposit, depositInterest) / 10000;
+            uint256 depositVal = DSMath.mul(DSMath.add(customer.hakAccount.deposit,
+                DSMath.add(customer.hakAccount.interest, depositInterestVal)), ethHakPrice);
+            return (depositVal / debt) / 10**14;
         }
 
     function getBalance(address token)
@@ -256,7 +271,7 @@ contract Bank is IBank {
                 customer.ethAccount.interest = DSMath.add(customer.ethAccount.interest, ethInterestVal);
                 uint256 borrowInterest = DSMath.mul(
                     DSMath.sub(block.number, customer.borrowBlock), 5);
-                uint256 debt = DSMath.add(customer.borrowed,
+                uint256 debt = DSMath.add(DSMath.add(customer.borrowed, customer.borrowInterest),
                     DSMath.mul(borrowInterest, customer.borrowed) / 10000);
                 return DSMath.sub(DSMath.add(customer.ethAccount.deposit,
                     customer.ethAccount.interest), debt);
@@ -264,4 +279,28 @@ contract Bank is IBank {
                 revert('token not supported');
             }
         }
+
+    function _getCollateralRatio(Customer memory customer, uint256 extraDebt)
+        view
+        private
+        returns (uint256) {
+            if (customer.hakAccount.deposit == 0) {
+                return 0;
+            }
+            if (DSMath.add(customer.borrowed, extraDebt) == 0) {
+                return type(uint256).max;
+            }
+            uint256 ethHakPrice = priceOracle.getVirtualPrice(hakToken);
+            uint256 borrowInterest = DSMath.mul(
+                DSMath.sub(block.number, customer.borrowBlock), 5);
+            uint256 debt = DSMath.add(DSMath.add(customer.borrowed, customer.borrowInterest),
+                DSMath.mul(borrowInterest, customer.borrowed) / 10000);
+            debt = DSMath.add(debt, extraDebt);
+            uint256 depositInterest = DSMath.mul(
+                DSMath.sub(block.number, customer.hakAccount.lastInterestBlock), 3);
+            uint256 depositInterestVal = DSMath.mul(customer.hakAccount.deposit, depositInterest) / 10000;
+            uint256 depositVal = DSMath.mul(DSMath.add(customer.hakAccount.deposit,
+                DSMath.add(customer.hakAccount.interest, depositInterestVal)), ethHakPrice);
+            return (depositVal / debt) / 10**14;
+    }
 }
