@@ -5,8 +5,17 @@ import "./interfaces/IBank.sol";
 import "./interfaces/IPriceOracle.sol";
 
 contract Bank is IBank {
+    address priceOracle;
+    address hakToken;
+    
+    mapping(address => uint256) private customerHaks;
+    mapping(address => uint256) private custormerEths;
 
-    constructor(address _priceOracle, address _hakToken) {}
+    constructor(address _priceOracle, address _hakToken) {
+        priceOracle = _priceOracle;
+        hakToken = _hakToken;
+    }
+    
     function deposit(address token, uint256 amount)
         payable
         external
@@ -45,5 +54,11 @@ contract Bank is IBank {
         view
         public
         override
-        returns (uint256) {}
+        returns (uint256) {
+            if (token == hakToken) {
+                return customerHaks[msg.sender];
+            } else {
+                return custormerEths[msg.sender];
+            }
+        }
 }
