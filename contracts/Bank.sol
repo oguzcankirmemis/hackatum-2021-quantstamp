@@ -37,8 +37,11 @@ contract Bank is IBank {
         external
         override
         returns (bool) {
+            if (token != hakToken && token != ethToken) {
+                revert('token not supported');
+            }
             require(amount > 0, "The amount should be higher than 0!");
-            require(amount == msg.value, "Amound and value cannot be different!");
+            require(amount == msg.value, "Amount and value cannot be different!");
             Customer storage customer = customerAccounts[msg.sender];
             if (token == hakToken) {
                 customer.hakAccount.deposit = DSMath.add(customer.hakAccount.deposit, amount);
