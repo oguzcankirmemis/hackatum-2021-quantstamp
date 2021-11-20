@@ -37,10 +37,6 @@ contract Bank is IBank {
         external
         override
         returns (bool) {
-            if (token != hakToken && token != ethToken) {
-                revert('token not supported');
-            }
-            require(amount > 0, "The amount should be higher than 0!");
             require(amount == msg.value, "Amount and value cannot be different!");
             Customer storage customer = customerAccounts[msg.sender];
             if (token == hakToken) {
@@ -54,14 +50,13 @@ contract Bank is IBank {
                 emit Deposit(msg.sender, token, amount);
                 return true;
             }
-            revert("Unidentified token");
+            revert("token not supported");
         }
 
     function withdraw(address token, uint256 amount)
         external
         override
         returns (uint256) {
-            require(amount > 0, "The amount should be higher than 0!");
             Customer storage customer = customerAccounts[msg.sender];
             if (token == hakToken) {
                 uint256 hakInterest = DSMath.wmul(
