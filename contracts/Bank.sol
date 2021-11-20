@@ -22,7 +22,7 @@ contract Bank is IBank {
 
     IPriceOracle priceOracle;
     address hakToken;
-    address ethToken = 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee;
+    address ethToken = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
     
     IERC20 hak;
     IERC20 eth;
