@@ -172,22 +172,41 @@ contract Bank is IBank {
         override
         returns (uint256) {
             require(token == ethToken, "token not supported");
-            require(amount == msg.value, "amount not equal to sent");
-            if (token != ethToken) {
-                revert('token not supported');
+            require(amount <= msg.value, "msg.value < amount to repay");
+            uint256 toSendBack = DSMath.sub(msg.value, amount);
+            Customer storage customer = customerAccounts[msg.sender];
+            address payable account = msg.sender;
+            bank.ethAmount = DSMath.add(bank.ethAmount, amount);
+            require(DSMath.add(customer.borrowed, customer.borrowInterest) > 0, "nothing to repay");
+            uint256 borrowInterest = DSMath.mul(
+                DSMath.sub(block.number, customer.borrowBlock), 5);
+            uint256 borrowInterestVal = DSMath.mul(borrowInterest, customer.borrowed) / 10000;
+            customer.borrowInterest = DSMath.add(customer.borrowInterest, borrowInterestVal);
+            if (amount == 0) {
+                amount = DSMath.add(customer.borrowed, customer.borrowInterest);
+                if (amount > msg.value) {
+                    amount = msg.value;
+                }
+                toSendBack = DSMath.sub(msg.value, amount);
             }
-            if (amount != msg.value) {
-                revert('amount not equal to sent');
+            if (amount >= customer.borrowInterest) {
+                amount = DSMath.sub(amount, customer.borrowInterest);
+                customer.borrowInterest = 0;
+            } else {
+                customer.borrowInterest = DSMath.sub(customer.borrowInterest, amount);
+                amount = 0;
             }
-            bank.ethAmount = DSMath.add(bank.ethAmount, msg.value);
-            address account = msg.sender;
-            uint256 borrowInterest = DSMath.wmul(DSMath.wdiv(
-                DSMath.sub(block.number, customerAccounts[account].borrowBlock), 100), 5);
-            uint256 borrowInterestVal = DSMath.wmul(borrowInterest, customerAccounts[account].borrowed);
-            uint256 remaining = DSMath.sub(amount, borrowInterestVal);
-            customerAccounts[account].borrowed = DSMath.sub(customerAccounts[account].borrowed, remaining);
-            emit IBank.Repay(account, token, customerAccounts[account].borrowed);
-            return customerAccounts[account].borrowed;
+            if (amount >= customer.borrowed) {
+                amount = DSMath.sub(amount, customer.borrowed);
+                customer.borrowed = 0;
+            } else {
+                customer.borrowed = DSMath.sub(customer.borrowed, amount);
+                amount = 0;
+            }
+            toSendBack = DSMath.add(toSendBack, amount);
+            account.transfer(toSendBack);
+            emit IBank.Repay(account, token, customer.borrowed);
+            return customer.borrowed;
         }
 
     function liquidate(address token, address account)
@@ -195,29 +214,33 @@ contract Bank is IBank {
         external
         override
         returns (bool) {
-            if (token != hakToken) {
-                revert('token not supported');
-            }
-            if (getCollateralRatio(token, account) >= 15000) {
-                revert('cannot liquidate (collateral ratio >= 150%');
-            }
+            require(token == hakToken, "token not supported");
+            require(account != msg.sender, "cannot liquidate own position");
+            require(getCollateralRatio(token, account) < 15000, "healty position");
             address payable payer = msg.sender;
-            uint256 borrowInterest = DSMath.wmul(DSMath.wdiv(
-                DSMath.sub(block.number, customerAccounts[account].borrowBlock), 100), 5);
-            uint256 borrowVal = DSMath.add(customerAccounts[account].borrowed,
-                DSMath.wmul(borrowInterest, customerAccounts[account].borrowed));
-            if (borrowVal > msg.value) {
-                revert('cannot liquidate (debt > deposit');
-            }
-            uint256 sentBack = DSMath.sub(msg.value, borrowVal);
-            bank.ethAmount = DSMath.add(bank.ethAmount, borrowVal);
-            payer.transfer(sentBack);
-            customerAccounts[account].borrowed = 0;
+            Customer storage customer = customerAccounts[account];
+            uint256 borrowInterest = DSMath.mul(
+                DSMath.sub(block.number, customer.borrowBlock), 5);
+            uint256 debt = DSMath.add(DSMath.add(customer.borrowed, customer.borrowInterest),
+                DSMath.mul(borrowInterest, customer.borrowed) / 10000);
+            require(debt <= msg.value, "insufficient ETH sent by liquidator");
+            uint256 sendBack = DSMath.sub(msg.value, debt);
+            bank.ethAmount = DSMath.add(bank.ethAmount, debt);
+            payer.transfer(sendBack);
+            customer.borrowed = 0;
+            uint256 amountCollateral = DSMath.add(customer.hakAccount.deposit, customer.hakAccount.interest);
+            uint256 hakInterest = DSMath.mul(
+                DSMath.sub(block.number, customer.hakAccount.lastInterestBlock), 3);
+            uint256 hakInterestVal = DSMath.mul(customer.hakAccount.deposit, hakInterest) / 10000;
+            amountCollateral = DSMath.add(amountCollateral, hakInterestVal);
             customerAccounts[payer].hakAccount.deposit = DSMath.add(
-                customerAccounts[payer].hakAccount.deposit, customerAccounts[account].hakAccount.deposit);
-            customerAccounts[account].hakAccount.deposit = 0;
+                customerAccounts[payer].hakAccount.deposit, amountCollateral);
+            customer.hakAccount.deposit = 0;
+            customer.hakAccount.interest = 0;
+            customer.hakAccount.lastInterestBlock = block.number;
+            hak.transfer(payer, amountCollateral);
             emit IBank.Liquidate(
-                payer, account, token, customerAccounts[account].hakAccount.deposit, sentBack);
+                payer, account, token, amountCollateral, sendBack);
             return true;
         }
 
@@ -228,7 +251,7 @@ contract Bank is IBank {
         returns (uint256) {
             Customer memory customer = customerAccounts[account];
             if (token != hakToken) {
-                revert('token not supported');
+                revert("token not supported");
             }
             uint256 ethHakPrice = priceOracle.getVirtualPrice(hakToken);
             if (customer.hakAccount.deposit == 0) {
@@ -276,7 +299,7 @@ contract Bank is IBank {
                 return DSMath.sub(DSMath.add(customer.ethAccount.deposit,
                     customer.ethAccount.interest), debt);
             } else {
-                revert('token not supported');
+                revert("token not supported");
             }
         }
 

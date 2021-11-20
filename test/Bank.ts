@@ -383,7 +383,7 @@ describe("Bank contract", function () {
       await mineBlocks(99);
       let liquidatorEthBalanceBefore = await acc2.getBalance();
       let liquidatorHakBalanceBefore = await hak2.balanceOf(await acc2.getAddress());
-      collateralAmount = ethers.utils.parseEther("15.0045");
+      collateralAmount = ethers.utils.parseEther("15.4545");
       let liquidatorAmount = ethers.utils.parseEther("16.0");
       await expect(bank2.liquidate(hak.address, await acc1.getAddress(), { value: liquidatorAmount}))
         .to.emit(bank, "Liquidate")
