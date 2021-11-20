@@ -48,12 +48,14 @@ contract Bank is IBank {
             if (token == hakToken) {
                 hak.transferFrom(msg.sender, bank.bank, amount);
                 customer.hakAccount.deposit = DSMath.add(customer.hakAccount.deposit, amount);
+                customer.hakAccount.lastInterestBlock = block.number;
                 bank.hakAmount = DSMath.add(bank.hakAmount, amount);
                 emit Deposit(msg.sender, token, amount);
                 return true;
             } else if(token == ethToken) {
                 require(amount == msg.value, "Amount and value cannot be different!");
                 customer.ethAccount.deposit = DSMath.add(customer.ethAccount.deposit, amount);
+                customer.ethAccount.lastInterestBlock = block.number;
                 bank.ethAmount = DSMath.add(bank.ethAmount, amount);
                 emit Deposit(msg.sender, token, amount);
                 return true;
