@@ -4,6 +4,7 @@ pragma solidity 0.7.0;
 import "./interfaces/IBank.sol";
 import "./interfaces/IPriceOracle.sol";
 import {DSMath} from "./libraries/Math.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
     
 contract Bank is IBank {
     struct Customer {
@@ -21,7 +22,11 @@ contract Bank is IBank {
 
     IPriceOracle priceOracle;
     address hakToken;
-    address ethToken = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    address ethToken = 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee;
+    
+    IERC20 hak;
+    IERC20 eth;
+    
     SimpleBank bank;
     
     mapping(address => Customer) customerAccounts;
@@ -30,6 +35,8 @@ contract Bank is IBank {
         priceOracle = IPriceOracle(_priceOracle);
         hakToken = _hakToken;
         bank = SimpleBank(msg.sender, 0, 0);
+        hak = IERC20(hakToken);
+        eth = IERC20(ethToken);
     }
     
     function deposit(address token, uint256 amount)
@@ -37,14 +44,15 @@ contract Bank is IBank {
         external
         override
         returns (bool) {
-            require(amount == msg.value, "Amount and value cannot be different!");
             Customer storage customer = customerAccounts[msg.sender];
             if (token == hakToken) {
+                hak.transferFrom(msg.sender, bank.bank, amount);
                 customer.hakAccount.deposit = DSMath.add(customer.hakAccount.deposit, amount);
                 bank.hakAmount = DSMath.add(bank.hakAmount, amount);
                 emit Deposit(msg.sender, token, amount);
                 return true;
             } else if(token == ethToken) {
+                require(amount == msg.value, "Amount and value cannot be different!");
                 customer.ethAccount.deposit = DSMath.add(customer.ethAccount.deposit, amount);
                 bank.ethAmount = DSMath.add(bank.ethAmount, amount);
                 emit Deposit(msg.sender, token, amount);
