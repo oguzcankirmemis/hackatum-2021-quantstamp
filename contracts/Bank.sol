@@ -4,7 +4,7 @@ pragma solidity 0.7.0;
 import "./interfaces/IBank.sol";
 import "./interfaces/IPriceOracle.sol";
 import {DSMath} from "./libraries/Math.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts@v3.4.0/token/ERC20/IERC20.sol";
     
 contract Bank is IBank {
     struct Customer {
@@ -73,12 +73,8 @@ contract Bank is IBank {
                 customer.hakAccount.lastInterestBlock = block.number;
                 uint256 hakInterestVal = DSMath.wmul(customer.hakAccount.deposit, hakInterest);
                 uint256 toSend = DSMath.add(amount, hakInterestVal);
-                if (amount > customer.hakAccount.deposit) {
-                    revert('amount bigger than deposit');
-                }
-                if (toSend > bank.hakAmount) {
-                    revert('hak bankrupt');
-                }
+                require(amount <= customer.hakAccount.deposit, "amount exceeds balance");
+                require(toSend <= bank.hakAmount, "eth bankrupt");
                 bank.hakAmount = DSMath.sub(bank.hakAmount, toSend);
                 customer.hakAccount.deposit = DSMath.sub(customer.hakAccount.deposit, amount);
                 payable(msg.sender).transfer(toSend);
@@ -91,12 +87,8 @@ contract Bank is IBank {
                 customer.ethAccount.lastInterestBlock = block.number;
                 uint256 ethInterestVal = DSMath.wmul(customer.ethAccount.deposit, ethInterest);
                 uint256 toSend = DSMath.add(amount, ethInterestVal);
-                if (amount > customer.ethAccount.deposit) {
-                    revert('amount bigger than deposit');
-                }
-                if (toSend > bank.ethAmount) {
-                    revert('eth bankrupt');
-                }
+                require(amount <= customer.ethAccount.deposit, "amount exceeds balance");
+                require(toSend <= bank.ethAmount, "eth bankrupt");
                 bank.ethAmount = DSMath.sub(bank.ethAmount, toSend);
                 customer.ethAccount.deposit = DSMath.sub(customer.ethAccount.deposit, amount);
                 payable(msg.sender).transfer(toSend);
