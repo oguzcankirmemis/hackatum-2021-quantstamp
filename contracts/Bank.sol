@@ -16,7 +16,7 @@ contract Bank is IBank {
     }
 
     struct SimpleBank {
-        address bank;
+        address owner;
         uint256 ethAmount;
         uint256 hakAmount;
     }
@@ -47,7 +47,7 @@ contract Bank is IBank {
         returns (bool) {
             Customer storage customer = customerAccounts[msg.sender];
             if (token == hakToken) {
-                hak.transferFrom(msg.sender, bank.bank, amount);
+                hak.transferFrom(msg.sender, address(this), amount);
                 uint256 hakInterest = DSMath.mul(
                     DSMath.sub(block.number, customer.hakAccount.lastInterestBlock), 3);
                 customer.hakAccount.lastInterestBlock = block.number;
@@ -89,10 +89,10 @@ contract Bank is IBank {
                 uint256 toSend = DSMath.add(DSMath.add(amount, hakInterestVal), customer.hakAccount.interest);
                 customer.hakAccount.interest = 0;
                 require(amount <= customer.hakAccount.deposit, "amount exceeds balance");
-                require(toSend <= bank.hakAmount, "eth bankrupt");
+                require(toSend <= bank.hakAmount, "hak bankrupt");
                 bank.hakAmount = DSMath.sub(bank.hakAmount, toSend);
                 customer.hakAccount.deposit = DSMath.sub(customer.hakAccount.deposit, amount);
-                payable(msg.sender).transfer(toSend);
+                hak.transfer(payable(msg.sender), toSend);
                 emit Withdraw(msg.sender, token, toSend);
                 return toSend;
             } else if (token == ethToken) {
